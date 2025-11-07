@@ -66,11 +66,13 @@ pub trait SeekSparse {
     fn data_size(&self) -> u64;
 }
 
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
 struct FileWithMetadata<'a> {
     file: &'a mut fs::File,
     stat: &'a fs::Metadata,
 }
 
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
 impl<'a> Read for FileWithMetadata<'a> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -78,6 +80,7 @@ impl<'a> Read for FileWithMetadata<'a> {
     }
 }
 
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
 impl<'a> Seek for FileWithMetadata<'a> {
     #[inline]
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
