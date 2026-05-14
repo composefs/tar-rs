@@ -2,8 +2,8 @@
 name = "tar"
 version = "0.4.45"
 authors = ["Alex Crichton <alex@alexcrichton.com>"]
-homepage = "https://github.com/alexcrichton/tar-rs"
-repository = "https://github.com/alexcrichton/tar-rs"
+homepage = "https://github.com/composefs/tar-rs"
+repository = "https://github.com/composefs/tar-rs"
 documentation = "https://docs.rs/tar"
 license = "MIT OR Apache-2.0"
 keywords = ["tar", "tarfile", "encoding"]
