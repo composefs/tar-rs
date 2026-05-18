@@ -2100,3 +2100,71 @@ async fn pax_size_smuggle_matches_astral_tokio_tar() {
          got: {async_entries:?}"
     );
 }
+
+#[test]
+fn pax_size_does_not_apply_to_extension_headers() {
+    // This archive is ordered as `x (PAX, size=2048) → L (GNU longname) → file_a → file_b`.
+    // If the PAX `size=` is wrongly applied to the intermediary `L` header, the
+    // parser advances the cursor by 2048 bytes after `L` instead of by `L`'s true
+    // payload size, landing in the middle of `file_a`'s body and causing a
+    // checksum error that hides both `file_a` and `file_b`. This is Scenario A of
+    // GHSA-3cv2-h65g-fgmm. Correct parsing applies PAX only to the next *file*
+    // entry, so the L longname renames `file_a` to `longname.txt` and the stream
+    // yields ["longname.txt", "file_b"]. Mirrors astral-tokio-tar commit 36e734d.
+    let bytes = tar!("pax-overrides-extension-header.tar");
+    let mut ar = Archive::new(Cursor::new(bytes));
+    let entries: Vec<String> = ar
+        .entries()
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            e.path().unwrap().to_str().unwrap().to_owned()
+        })
+        .collect();
+    assert_eq!(entries, vec!["longname.txt", "file_b"]);
+}
+
+/// Cross-validate that `tar` and `astral-tokio-tar` (>= 0.6.2) parse the
+/// GHSA-3cv2-h65g-fgmm test archive identically, guarding against any future
+/// re-introduction of a parsing differential between the two crates.
+#[tokio::test]
+async fn pax_extension_header_matches_astral_tokio_tar() {
+    use tokio_stream::StreamExt;
+
+    let bytes = tar!("pax-overrides-extension-header.tar");
+
+    // Parse with sync tar-rs.
+    let sync_entries: Vec<String> = {
+        let mut ar = Archive::new(Cursor::new(bytes));
+        ar.entries()
+            .unwrap()
+            .map(|e| {
+                let e = e.unwrap();
+                e.path().unwrap().to_str().unwrap().to_owned()
+            })
+            .collect()
+    };
+
+    // Parse with async astral-tokio-tar (>= 0.6.2, which carries the fix).
+    let async_entries: Vec<String> = {
+        let mut ar = tokio_tar::Archive::new(bytes);
+        let mut entries = ar.entries().unwrap();
+        let mut result = Vec::new();
+        while let Some(e) = entries.next().await {
+            let e = e.unwrap();
+            result.push(e.path().unwrap().to_str().unwrap().to_owned());
+        }
+        result
+    };
+
+    let expected = vec!["longname.txt".to_owned(), "file_b".to_owned()];
+
+    assert_eq!(
+        sync_entries, expected,
+        "tar-rs produced unexpected entries\ngot: {sync_entries:?}"
+    );
+    assert_eq!(
+        async_entries, expected,
+        "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
+    );
+}

@@ -334,8 +334,16 @@ impl<'a> EntriesFields<'a> {
             return Err(other("archive header checksum mismatch"));
         }
 
+        // PAX extensions describe the *next file entry*, not intermediary
+        // extension headers (GNU LongName `L`, GNU LongLink `K`, PAX `x`/`g`).
+        let entry_type = header.entry_type();
+        let is_extension_header = entry_type.is_gnu_longname()
+            || entry_type.is_gnu_longlink()
+            || entry_type.is_pax_local_extensions()
+            || entry_type.is_pax_global_extensions();
+
         let mut pax_size: Option<u64> = None;
-        if let Some(pax_extensions_ref) = &pax_extensions {
+        if let Some(pax_extensions_ref) = pax_extensions.filter(|_| !is_extension_header) {
             pax_size = pax_extensions_value(pax_extensions_ref, PAX_SIZE);
 
             if let Some(pax_uid) = pax_extensions_value(pax_extensions_ref, PAX_UID) {
