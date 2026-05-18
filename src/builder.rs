@@ -57,11 +57,41 @@ impl<W: Write> Builder<W> {
         self.options.preserve_absolute = preserve;
     }
 
-    /// Follow symlinks, archiving the contents of the file they point to rather
-    /// than adding a symlink to the archive. Defaults to true.
+    /// Control whether symlinks are followed when reading from the filesystem.
+    /// Defaults to `true` (but see the note below — you almost certainly want
+    /// to call `follow_symlinks(false)`).
     ///
-    /// When true, it exhibits the same behavior as GNU `tar` command's
-    /// `--dereference` or `-h` options <https://man7.org/linux/man-pages/man1/tar.1.html>.
+    /// When `true`, symlinks are dereferenced: the archive entry contains the
+    /// contents of the symlink target rather than the symlink itself,
+    /// equivalent to GNU `tar --dereference` (`-h`). When `false` (the default
+    /// for all mainstream tar implementations), symlinks are stored as symlink
+    /// entries in the archive.
+    ///
+    /// # Why you should almost always use `follow_symlinks(false)`
+    ///
+    /// Every mainstream tar implementation preserves symlinks by default.
+    /// GNU `tar` requires the explicit `--dereference` (`-h`) flag to follow
+    /// them. Go's `archive/tar` stores whatever the underlying `fs.FS` reports
+    /// and never dereferences on its own. BSD `tar` behaves the same way.
+    /// This crate's default of `true` is a historical quirk kept for
+    /// compatibility but is wrong for most use-cases:
+    ///
+    /// - Symlinks in the source tree are part of its structure and should
+    ///   normally be preserved, not silently replaced by their targets.
+    /// - When `true`, [`append_dir_all`](Builder::append_dir_all) follows
+    ///   symlinks that point *outside* `src_path` just as readily as those
+    ///   inside it. If the archiving process has broader filesystem read access
+    ///   than whoever controls the source tree (e.g. a privileged backup
+    ///   service, a CI runner archiving user-submitted workspaces), an attacker
+    ///   can plant a symlink inside `src_path` to silently include arbitrary
+    ///   files from the host.
+    ///
+    /// Call `follow_symlinks(false)` unless you have a specific reason to
+    /// flatten symlinks into their targets. For the strongest guarantee, open
+    /// `src_path` with [`cap-std`] and walk the tree with capability-safe I/O,
+    /// which blocks symlink escapes at the OS level regardless of this setting.
+    ///
+    /// [`cap-std`]: https://docs.rs/cap-std/
     pub fn follow_symlinks(&mut self, follow: bool) {
         self.options.follow = follow;
     }
@@ -427,6 +457,48 @@ impl<W: Write> Builder<W> {
     /// Also note that after all files have been written to an archive the
     /// `finish` or `into_inner` function needs to be called to finish
     /// writing the archive.
+    ///
+    /// # Security
+    ///
+    /// **Call [`follow_symlinks(false)`](Builder::follow_symlinks) before this
+    /// method** unless you have an explicit reason to dereference symlinks.
+    /// All mainstream tar implementations (GNU tar, BSD tar, Go's
+    /// `archive/tar`) preserve symlinks by default; this crate's default of
+    /// `true` is a historical quirk.
+    ///
+    /// When `follow_symlinks` is `true` (the current default), this method
+    /// dereferences every symlink it encounters, including ones whose targets
+    /// lie **outside** `src_path`. When the archiver runs with broader
+    /// filesystem access than whoever controls the source tree (e.g. a
+    /// privileged backup or export service), an attacker can plant a symlink
+    /// inside `src_path` to silently include arbitrary files the archiver can
+    /// read, with no indication in the archive that they came from outside the
+    /// source root.
+    ///
+    /// ```no_run
+    /// use tar::Builder;
+    ///
+    /// # let src_path = std::path::Path::new(".");
+    /// # let writer = std::io::sink();
+    /// // Recommended: preserve symlinks as-is, matching GNU tar's default.
+    /// let mut ar = Builder::new(writer);
+    /// ar.follow_symlinks(false);
+    /// ar.append_dir_all("", src_path).unwrap();
+    /// ar.finish().unwrap();
+    /// ```
+    ///
+    /// With `follow_symlinks(false)`, symlinks inside the source tree are
+    /// stored as symlink entries in the archive rather than being read through.
+    /// Note that the resulting archive may then contain symlinks with absolute
+    /// or `..`-relative targets; validate or strip those on extraction if the
+    /// archive consumer is also untrusted.
+    ///
+    /// For the strongest available guarantee, open `src_path` using [`cap-std`]
+    /// and walk the directory tree with capability-safe I/O. This prevents
+    /// symlink escapes at the OS level and protects against TOCTOU races that
+    /// a purely path-based check cannot close.
+    ///
+    /// [`cap-std`]: https://docs.rs/cap-std/
     ///
     /// # Examples
     ///
