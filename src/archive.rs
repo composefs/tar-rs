@@ -95,19 +95,9 @@ impl<R: Read> Archive<R> {
     ///
     /// # Security
     ///
-    /// A best-effort is made to prevent writing files outside `dst` (paths
-    /// containing `..` are skipped, symlinks are validated). However, there
-    /// have been historical bugs in this area, and more may exist. For this
-    /// reason, when processing untrusted archives, stronger sandboxing is
-    /// encouraged: e.g. the [`cap-std`] crate and/or OS-level
-    /// containerization/virtualization.
-    ///
-    /// If `dst` does not exist, it is created. Unpacking into an existing
-    /// directory merges content. This function assumes `dst` is not
-    /// concurrently modified by untrusted processes. Protecting against
-    /// TOCTOU races is out of scope for this crate.
-    ///
-    /// [`cap-std`]: https://docs.rs/cap-std/
+    /// See the [crate-level security documentation][crate#security]. If `dst`
+    /// does not exist, it is created. Unpacking into an existing directory
+    /// merges content.
     ///
     /// # Examples
     ///
