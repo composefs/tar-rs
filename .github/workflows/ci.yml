@@ -5,6 +5,7 @@ on:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+  merge_group:
 
 env:
   CARGO_TERM_COLOR: always
@@ -126,13 +127,14 @@ jobs:
     if: always()
     needs: [test, wasm, rustfmt, semver-checks, revdep, publish_docs]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
-      - run: exit 1
-        if: >-
-          needs.test.result != 'success' ||
-          needs.wasm.result != 'success' ||
-          needs.rustfmt.result != 'success' ||
-          needs.semver-checks.result != 'success' ||
-          needs.revdep.result != 'success' ||
-          needs.publish_docs.result != 'success'
+      - name: Check all jobs
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: |
+          FAILED=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result | IN("success","skipped") | not) | .key')
+          if [ -n "$FAILED" ]; then
+            echo "The following jobs did not succeed: $FAILED"
+            exit 1
+          fi
+          echo "All jobs succeeded or were skipped."
