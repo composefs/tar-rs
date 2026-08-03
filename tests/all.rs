@@ -1489,6 +1489,8 @@ fn writing_sparse() {
     assert!(data.len() <= 37 * 1024); // ext4 (defaults to 4k block size)
     #[cfg(target_os = "freebsd")]
     assert!(data.len() <= 273 * 1024); // UFS (defaults to 32k block size, last block isn't a hole)
+    #[cfg(target_os = "macos")]
+    assert!(data.len() <= 37 * 1024); // APFS (4k block size)
 
     let mut ar = Archive::new(&data[..]);
     let mut entries = ar.entries().unwrap();

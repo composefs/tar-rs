@@ -1062,19 +1062,34 @@ fn find_sparse_entries(
     file: &mut fs::File,
     stat: &fs::Metadata,
 ) -> io::Result<Option<SparseEntries>> {
-    #[cfg(not(any(target_os = "android", target_os = "freebsd", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos"
+    )))]
     {
         let _ = file;
         let _ = stat;
         Ok(None)
     }
 
-    #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos"
+    ))]
     find_sparse_entries_seek(file, stat)
 }
 
 /// Implementation of `find_sparse_entries` using `SEEK_HOLE` and `SEEK_DATA`.
-#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos"
+))]
 fn find_sparse_entries_seek(
     file: &mut fs::File,
     stat: &fs::Metadata,
