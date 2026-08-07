@@ -500,6 +500,11 @@ impl<W: Write> Builder<W> {
     ///
     /// [`cap-std`]: https://docs.rs/cap-std/
     ///
+    /// # Hardlinks
+    ///
+    /// This function will never create hardlinks; to do that, you will
+    /// need to implement a custom recursive walk.
+    ///
     /// # Examples
     ///
     /// ```
