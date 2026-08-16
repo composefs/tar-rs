@@ -268,9 +268,9 @@ impl<W: Write> Builder<W> {
     ///
     /// This function is similar to [`Self::append_data`] which supports long filenames,
     /// but also supports long link targets using GNU extensions if necessary.
-    /// You must set the entry type to either [`EntryType::Link`] or [`EntryType::Symlink`].
-    /// The `set_cksum` method will be invoked after setting the path. No other metadata in the
-    /// header will be modified.
+    /// If the entry type is not already set to [`EntryType::Link`] or [`EntryType::Symlink`],
+    /// it will default to [`EntryType::Symlink`]. The header size will automatically be set to 0.
+    /// The `set_cksum` method will be invoked after setting the path.
     ///
     /// If you are intending to use GNU extensions, you must use this method over calling
     /// [`Header::set_link_name`] because that function will fail on long links.
@@ -291,8 +291,6 @@ impl<W: Write> Builder<W> {
     /// let mut ar = Builder::new(Vec::new());
     /// let mut header = Header::new_gnu();
     /// header.set_username("foo");
-    /// header.set_entry_type(EntryType::Symlink);
-    /// header.set_size(0);
     /// ar.append_link(&mut header, "really/long/path/to/foo", "other/really/long/target").unwrap();
     /// let data = ar.into_inner().unwrap();
     /// ```
@@ -309,6 +307,10 @@ impl<W: Write> Builder<W> {
         let allow_abolute = self.options.preserve_absolute;
         prepare_header_path(self.get_mut(), header, path, allow_abolute)?;
         prepare_header_link(self.get_mut(), header, target)?;
+        if !header.entry_type().is_hard_link() && !header.entry_type().is_symlink() {
+            header.set_entry_type(EntryType::Symlink);
+        }
+        header.set_size(0);
         header.set_cksum();
         self.append(header, std::io::empty())
     }

@@ -2168,3 +2168,22 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+#[test]
+fn append_link_defaults_size_and_type() {
+    let mut ar = Builder::new(Vec::new());
+    let mut header = Header::new_gnu();
+    ar.append_link(&mut header, "my/link", "target/path")
+        .unwrap();
+    let data = ar.into_inner().unwrap();
+
+    let mut archive = Archive::new(data.as_slice());
+    let mut entries = archive.entries().unwrap();
+    let entry = entries.next().unwrap().unwrap();
+    assert_eq!(entry.header().size().unwrap(), 0);
+    assert!(entry.header().entry_type().is_symlink());
+    assert_eq!(
+        entry.link_name().unwrap().unwrap().to_str(),
+        Some("target/path")
+    );
+}
