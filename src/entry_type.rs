@@ -19,7 +19,10 @@ pub enum EntryType {
     Directory,
     /// Named pipe (fifo)
     Fifo,
-    /// Implementation-defined 'high-performance' type, treated as regular file
+    /// Contiguous file (POSIX '7', treated as regular file)
+    Contiguous,
+    /// Deprecated alias for [`EntryType::Contiguous`].
+    #[deprecated(note = "Typo for Contiguous, use `EntryType::Contiguous` instead")]
     Continuous,
     /// GNU extension - long file name
     GNULongName,
@@ -54,7 +57,7 @@ impl EntryType {
             b'4' => EntryType::Block,
             b'5' => EntryType::Directory,
             b'6' => EntryType::Fifo,
-            b'7' => EntryType::Continuous,
+            b'7' => EntryType::Contiguous,
             b'x' => EntryType::XHeader,
             b'g' => EntryType::XGlobalHeader,
             b'L' => EntryType::GNULongName,
@@ -74,7 +77,8 @@ impl EntryType {
             EntryType::Block => b'4',
             EntryType::Directory => b'5',
             EntryType::Fifo => b'6',
-            EntryType::Continuous => b'7',
+            #[allow(deprecated)]
+            EntryType::Contiguous | EntryType::Continuous => b'7',
             EntryType::XHeader => b'x',
             EntryType::XGlobalHeader => b'g',
             EntryType::GNULongName => b'L',
@@ -121,12 +125,16 @@ impl EntryType {
 
     /// Creates a new entry type representing a contiguous file.
     pub fn contiguous() -> EntryType {
-        EntryType::Continuous
+        EntryType::Contiguous
     }
 
     /// Returns whether this type represents a regular file.
+    #[allow(deprecated)]
     pub fn is_file(&self) -> bool {
-        self == &EntryType::Regular
+        matches!(
+            *self,
+            EntryType::Regular | EntryType::Contiguous | EntryType::Continuous
+        )
     }
 
     /// Returns whether this type represents a hard link.
@@ -160,8 +168,15 @@ impl EntryType {
     }
 
     /// Returns whether this type represents a contiguous file.
+    #[allow(deprecated)]
     pub fn is_contiguous(&self) -> bool {
-        self == &EntryType::Continuous
+        matches!(*self, EntryType::Contiguous | EntryType::Continuous)
+    }
+
+    /// Deprecated alias for [`EntryType::is_contiguous`].
+    #[deprecated(note = "Typo for is_contiguous, use `is_contiguous` instead")]
+    pub fn is_continuous(&self) -> bool {
+        self.is_contiguous()
     }
 
     /// Returns whether this type represents a GNU long name header.
