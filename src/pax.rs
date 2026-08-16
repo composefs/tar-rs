@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use std::io;
 use std::io::Write;
-use std::slice;
 use std::str;
 
 use crate::other;
@@ -40,18 +39,13 @@ pub const PAX_GNUSPARSEREALSIZE: &str = "GNU.sparse.realsize";
 /// This iterator yields structures which can themselves be parsed into
 /// key/value pairs.
 pub struct PaxExtensions<'entry> {
-    data: slice::Split<'entry, u8, fn(&u8) -> bool>,
+    data: &'entry [u8],
 }
 
 impl<'entry> PaxExtensions<'entry> {
     /// Create new pax extensions iterator from the given entry data.
     pub fn new(a: &'entry [u8]) -> Self {
-        fn is_newline(a: &u8) -> bool {
-            *a == b'\n'
-        }
-        PaxExtensions {
-            data: a.split(is_newline),
-        }
+        PaxExtensions { data: a }
     }
 }
 
@@ -88,36 +82,55 @@ impl<'entry> Iterator for PaxExtensions<'entry> {
     type Item = io::Result<PaxExtension<'entry>>;
 
     fn next(&mut self) -> Option<io::Result<PaxExtension<'entry>>> {
-        let line = match self.data.next() {
-            Some([]) => return None,
-            Some(line) => line,
-            None => return None,
+        if self.data.is_empty() {
+            return None;
+        }
+
+        let space_pos = match self.data.iter().position(|b| *b == b' ') {
+            Some(pos) => pos,
+            None => {
+                self.data = &[];
+                return Some(Err(other("malformed pax extension")));
+            }
         };
 
-        Some(
-            line.iter()
-                .position(|b| *b == b' ')
-                .and_then(|i| {
-                    str::from_utf8(&line[..i])
-                        .ok()
-                        .and_then(|len| len.parse::<usize>().ok().map(|j| (i + 1, j)))
-                })
-                .and_then(|(kvstart, reported_len)| {
-                    if line.len() + 1 == reported_len {
-                        line[kvstart..]
-                            .iter()
-                            .position(|b| *b == b'=')
-                            .map(|equals| (kvstart, equals))
-                    } else {
-                        None
-                    }
-                })
-                .map(|(kvstart, equals)| PaxExtension {
-                    key: &line[kvstart..kvstart + equals],
-                    value: &line[kvstart + equals + 1..],
-                })
-                .ok_or_else(|| other("malformed pax extension")),
-        )
+        let len_str = match str::from_utf8(&self.data[..space_pos]) {
+            Ok(s) => s,
+            Err(_) => {
+                self.data = &[];
+                return Some(Err(other("malformed pax extension")));
+            }
+        };
+
+        let reported_len = match len_str.parse::<usize>() {
+            Ok(len) => len,
+            Err(_) => {
+                self.data = &[];
+                return Some(Err(other("malformed pax extension")));
+            }
+        };
+
+        if reported_len < space_pos + 2
+            || reported_len > self.data.len()
+            || self.data[reported_len - 1] != b'\n'
+        {
+            self.data = &[];
+            return Some(Err(other("malformed pax extension")));
+        }
+
+        let record = &self.data[..reported_len - 1];
+        self.data = &self.data[reported_len..];
+
+        let kv = &record[space_pos + 1..];
+        let equals_pos = match kv.iter().position(|b| *b == b'=') {
+            Some(pos) => pos,
+            None => return Some(Err(other("malformed pax extension"))),
+        };
+
+        Some(Ok(PaxExtension {
+            key: &kv[..equals_pos],
+            value: &kv[equals_pos + 1..],
+        }))
     }
 }
 

@@ -1133,6 +1133,29 @@ fn pax_simple_write() {
 }
 
 #[test]
+fn pax_value_with_embedded_newline() {
+    let raw = b"16 linkpath=a\nb\n";
+    let mut exts = tar::PaxExtensions::new(raw);
+    let ext = exts.next().unwrap().unwrap();
+    assert_eq!(ext.key(), Ok("linkpath"));
+    assert_eq!(ext.value_bytes(), b"a\nb");
+    assert!(exts.next().is_none());
+}
+
+#[test]
+fn pax_value_binary_xattr_with_newline_byte() {
+    let raw = b"57 SCHILY.xattr.security.capability=\x01\x00\x00\x02\x02\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n";
+    let mut exts = tar::PaxExtensions::new(raw);
+    let ext = exts.next().unwrap().unwrap();
+    assert_eq!(ext.key(), Ok("SCHILY.xattr.security.capability"));
+    assert_eq!(
+        ext.value_bytes(),
+        b"\x01\x00\x00\x02\x02\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    );
+    assert!(exts.next().is_none());
+}
+
+#[test]
 fn pax_path() {
     let mut ar = Archive::new(random_cursor_reader(tar!("pax2.tar")));
     let mut entries = ar.entries().unwrap();
