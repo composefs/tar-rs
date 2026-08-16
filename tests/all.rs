@@ -2168,3 +2168,21 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+#[test]
+fn entry_type_contiguous() {
+    let t = tar::EntryType::new(b'7');
+    assert_eq!(t, tar::EntryType::Contiguous);
+    assert_eq!(t.as_byte(), b'7');
+    assert!(t.is_contiguous());
+    assert!(t.is_file());
+    assert_eq!(tar::EntryType::contiguous(), tar::EntryType::Contiguous);
+
+    #[allow(deprecated)]
+    {
+        assert!(t.is_continuous());
+        assert_eq!(tar::EntryType::Continuous.as_byte(), b'7');
+        assert!(tar::EntryType::Continuous.is_contiguous());
+        assert!(tar::EntryType::Continuous.is_file());
+    }
+}
