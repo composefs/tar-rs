@@ -261,3 +261,13 @@ fn byte_slice_conversion() {
     let b_conv: &[u8] = Header::from_byte_slice(h.as_bytes()).as_bytes();
     assert_eq!(b, b_conv);
 }
+
+#[test]
+fn blank_octal_field_parses_as_zero() {
+    let mut h = Header::new_gnu();
+    h.as_old_mut().size = [b' '; 12];
+    assert_eq!(h.entry_size().unwrap(), 0);
+
+    h.as_old_mut().size = [0; 12];
+    assert_eq!(h.entry_size().unwrap(), 0);
+}

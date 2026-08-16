@@ -2168,3 +2168,30 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+#[test]
+fn gnu_volume_header_label_iteration() {
+    let mut builder = Builder::new(Vec::new());
+    let mut header = Header::new_gnu();
+    header.set_entry_type(tar::EntryType::new(b'V'));
+    header.as_old_mut().size = [b' '; 12];
+    header.set_path("MY_TAR_LABEL").unwrap();
+    header.set_cksum();
+    builder.append(&header, std::io::empty()).unwrap();
+
+    let mut file_header = Header::new_gnu();
+    file_header.set_path("a.txt").unwrap();
+    file_header.set_size(2);
+    file_header.set_cksum();
+    builder.append(&file_header, b"A\n".as_slice()).unwrap();
+
+    let data = builder.into_inner().unwrap();
+    let mut ar = Archive::new(data.as_slice());
+    let paths: Vec<String> = ar
+        .entries()
+        .unwrap()
+        .map(|e| e.unwrap().path().unwrap().to_str().unwrap().to_owned())
+        .collect();
+
+    assert_eq!(paths, vec!["MY_TAR_LABEL", "a.txt"]);
+}
