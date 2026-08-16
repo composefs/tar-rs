@@ -1483,7 +1483,11 @@ fn octal_from(slice: &[u8]) -> io::Result<u64> {
             )));
         }
     };
-    match u64::from_str_radix(num.trim(), 8) {
+    let trimmed = num.trim();
+    if trimmed.is_empty() {
+        return Ok(0);
+    }
+    match u64::from_str_radix(trimmed, 8) {
         Ok(n) => Ok(n),
         Err(_) => Err(other(&format!("numeric field was not a number: {}", num))),
     }
