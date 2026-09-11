@@ -1132,6 +1132,122 @@ fn pax_simple_write() {
     assert!(entries.next().is_none());
 }
 
+fn pax_symlink_archive(records: &[(&str, &[u8])], ustar_link: &str) -> Vec<u8> {
+    let mut ar = Builder::new(Vec::new());
+    ar.append_pax_extensions(records.iter().copied()).unwrap();
+
+    let mut header = Header::new_ustar();
+    header.set_size(0);
+    header.set_entry_type(EntryType::Symlink);
+    header.set_link_name(ustar_link).unwrap();
+    ar.append_data(&mut header, "link", io::empty()).unwrap();
+    ar.into_inner().unwrap()
+}
+
+type PaxRecord = (Vec<u8>, Vec<u8>);
+
+fn collect_pax(body: &[u8]) -> (Vec<PaxRecord>, bool) {
+    let mut iter = tar::PaxExtensions::new(body);
+    let mut records = Vec::new();
+    let mut errored = false;
+    for record in &mut iter {
+        match record {
+            Ok(r) => records.push((r.key_bytes().to_vec(), r.value_bytes().to_vec())),
+            Err(_) => {
+                errored = true;
+                break;
+            }
+        }
+    }
+    if errored {
+        assert!(
+            iter.next().is_none(),
+            "iteration must stop once the framing is lost"
+        );
+    }
+    (records, errored)
+}
+
+/// A record is `"%d %s=%s\n"`, where the decimal counts the whole record.
+#[test]
+fn pax_records_are_framed_by_length() {
+    type Expected = &'static [(&'static [u8], &'static [u8])];
+    // (body, expected records, expected trailing error)
+    let cases: &[(&[u8], Expected, bool)] = &[
+        (b"16 linkpath=a\nb\n", &[(b"linkpath", b"a\nb")], false),
+        // A binary `security.capability` value holding 0x0a, as in #428.
+        (
+            b"57 SCHILY.xattr.security.capability=\x01\x00\x00\x02\x02\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n",
+            &[(
+                b"SCHILY.xattr.security.capability",
+                b"\x01\x00\x00\x02\x02\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            )],
+            false,
+        ),
+        (
+            b"49 SCHILY.xattr.user.a=AAA\n22 linkpath=/etc/evil\n",
+            &[(b"SCHILY.xattr.user.a", b"AAA\n22 linkpath=/etc/evil")],
+            false,
+        ),
+        (
+            b"12 path=one\n12 path=two\n",
+            &[(b"path", b"one"), (b"path", b"two")],
+            false,
+        ),
+        (b"013 path=one\n", &[(b"path", b"one")], false),
+        (b"", &[], false),
+        // An empty line is a framing error, not the end of the body.
+        (b"12 path=one\n\n12 path=two\n", &[(b"path", b"one")], true),
+        (b"\n12 path=one\n", &[], true),
+        (b"12path=one\n", &[], true),
+        (b"xx path=one\n", &[], true),
+        (b"\xff\xff path=one\n", &[], true),
+        (b" 12 path=one\n", &[], true),
+        (b"+13 path=one\n", &[], true),
+        (b"99 SCHILY.xattr.user.key=value\n", &[], true),
+        (b"99999999999999999999999999 path=x\n", &[], true),
+        (b"5 path=one\n", &[], true),
+        (b"12 path=one", &[], true),
+        (b"11 path=one", &[], true),
+        (b"10 pathon\n", &[], true),
+    ];
+
+    for (body, expected, expect_err) in cases {
+        let (records, errored) = collect_pax(body);
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|(k, v)| (k.to_vec(), v.to_vec()))
+            .collect();
+        assert_eq!(
+            (records, errored),
+            (expected, *expect_err),
+            "body {:?}",
+            String::from_utf8_lossy(body)
+        );
+    }
+}
+
+#[test]
+fn pax_linkpath_with_newline() {
+    let data = pax_symlink_archive(&[("linkpath", b"a\nb")], "fallback");
+
+    let mut ar = Archive::new(random_cursor_reader(&data[..]));
+    let entry = ar.entries().unwrap().next().unwrap().unwrap();
+    assert_eq!(entry.link_name_bytes().unwrap().as_ref(), b"a\nb");
+}
+
+#[test]
+fn pax_smuggled_linkpath_is_part_of_the_value() {
+    let data = pax_symlink_archive(
+        &[("SCHILY.xattr.user.a", b"AAA\n22 linkpath=/etc/evil")],
+        "harmless",
+    );
+
+    let mut ar = Archive::new(random_cursor_reader(&data[..]));
+    let entry = ar.entries().unwrap().next().unwrap().unwrap();
+    assert_eq!(entry.link_name_bytes().unwrap().as_ref(), b"harmless");
+}
+
 #[test]
 fn pax_path() {
     let mut ar = Archive::new(random_cursor_reader(tar!("pax2.tar")));
