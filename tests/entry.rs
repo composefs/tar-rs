@@ -8,6 +8,36 @@ use std::io::Read;
 use tempfile::Builder;
 
 #[test]
+fn empty_reads_preserve_regular_and_sparse_member_data() {
+    for bytes in [
+        &include_bytes!("archives/reading_files.tar")[..],
+        &include_bytes!("archives/sparse.tar")[..],
+    ] {
+        let mut baseline = tar::Archive::new(bytes);
+        let mut archive = tar::Archive::new(bytes);
+        let mut entries = archive.entries().unwrap();
+        let mut buffer = [0; 1024];
+        for expected in baseline.entries().unwrap() {
+            let mut expected = expected.unwrap();
+            let mut body = Vec::new();
+            expected.read_to_end(&mut body).unwrap();
+            let mut member = entries.next().unwrap().unwrap();
+            let mut actual = Vec::new();
+            loop {
+                assert_eq!(member.read(&mut []).unwrap(), 0);
+                let n = member.read(&mut buffer).unwrap();
+                if n == 0 {
+                    break;
+                }
+                actual.extend_from_slice(&buffer[..n]);
+            }
+            assert_eq!(actual, body);
+        }
+        assert!(entries.next().is_none());
+    }
+}
+
+#[test]
 fn absolute_symlink() {
     let mut ar = tar::Builder::new(Vec::new());
 
