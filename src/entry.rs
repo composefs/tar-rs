@@ -506,6 +506,17 @@ impl<'a> EntryFields<'a> {
                 self.preserve_permissions,
                 self.preserve_ownerships,
             )?;
+
+            // Note this gets applied as a fixup pass in Archive::_unpack after all
+            // directory entries have been restored.
+            if self.preserve_mtime {
+                if let Some(mtime) = get_mtime(&self.header) {
+                    filetime::set_file_mtime(dst, mtime).map_err(|e| {
+                        TarError::new(format!("failed to set mtime for `{}`", dst.display()), e)
+                    })?;
+                }
+            }
+
             return Ok(Unpacked::__Nonexhaustive);
         } else if kind.is_hard_link() || kind.is_symlink() {
             let src = match self.link_name()? {
