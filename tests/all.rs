@@ -1956,7 +1956,10 @@ fn append_data_error_does_not_corrupt_subsequent_entries() {
 /// actual header size field is 8. A symlink entry is hidden inside the
 /// inflated region. A correct parser honours the PAX size and skips over
 /// the symlink; a buggy one reads only the header size and exposes it.
-fn build_pax_smuggle_archive() -> Vec<u8> {
+///
+/// `pax_rec` is the body of the PAX header and must end up declaring
+/// `size=2048`.
+fn build_pax_smuggle_archive(pax_rec: &[u8]) -> Vec<u8> {
     const B: usize = 512;
     const INFLATED: usize = 2048;
     let end_of_archive = || std::iter::repeat(0u8).take(B * 2);
@@ -1964,14 +1967,13 @@ fn build_pax_smuggle_archive() -> Vec<u8> {
     let mut ar: Vec<u8> = Vec::new();
 
     // PAX extended header declaring size=2048 for the next entry.
-    let pax_rec = format!("13 size={INFLATED}\n");
     let mut pax_hdr = Header::new_ustar();
     pax_hdr.set_path("./PaxHeaders/regular").unwrap();
-    pax_hdr.set_size(pax_rec.as_bytes().len() as u64);
+    pax_hdr.set_size(pax_rec.len() as u64);
     pax_hdr.set_entry_type(EntryType::XHeader);
     pax_hdr.set_cksum();
     ar.extend_from_slice(pax_hdr.as_bytes());
-    ar.extend_from_slice(pax_rec.as_bytes());
+    ar.extend_from_slice(pax_rec);
     ar.resize(ar.len().next_multiple_of(B), 0);
 
     // Regular file whose header says size=8, but PAX says 2048.
@@ -2017,7 +2019,7 @@ fn build_pax_smuggle_archive() -> Vec<u8> {
 /// symlink — matching the behavior of compliant parsers.
 #[test]
 fn pax_size_smuggled_symlink() {
-    let data = build_pax_smuggle_archive();
+    let data = build_pax_smuggle_archive(b"13 size=2048\n");
 
     let mut archive = Archive::new(random_cursor_reader(&data[..]));
     let entries: Vec<_> = archive
@@ -2043,13 +2045,40 @@ fn pax_size_smuggled_symlink() {
     );
 }
 
+/// A later PAX record overrides an earlier one with the same keyword. GNU tar,
+/// libarchive and Go all keep the last value, so keeping the first `size`
+/// would frame the archive differently and expose the hidden symlink.
+#[test]
+fn pax_duplicate_records_last_wins() {
+    let data = build_pax_smuggle_archive(
+        b"10 size=8\n13 size=2048\n\
+          14 path=first\n15 path=second\n\
+          18 linkpath=first\n19 linkpath=second\n",
+    );
+
+    let mut archive = Archive::new(random_cursor_reader(&data[..]));
+    let entries: Vec<_> = archive
+        .entries()
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            let path = e.path().unwrap().to_path_buf();
+            let link = e.link_name().unwrap().map(|l| l.to_path_buf());
+            (path, link, e.size())
+        })
+        .collect();
+
+    let expected = vec![(PathBuf::from("second"), Some(PathBuf::from("second")), 2048)];
+    assert_eq!(entries, expected);
+}
+
 /// Cross-validate that `tar` and `astral-tokio-tar` parse the PAX size
 /// smuggling archive identically, guarding against parsing differentials.
 #[tokio::test]
 async fn pax_size_smuggle_matches_astral_tokio_tar() {
     use tokio_stream::StreamExt;
 
-    let data = build_pax_smuggle_archive();
+    let data = build_pax_smuggle_archive(b"13 size=2048\n");
 
     // Parse with sync tar.
     let sync_entries: Vec<_> = {
