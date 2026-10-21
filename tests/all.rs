@@ -2168,3 +2168,65 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+/// A member described by both a PAX `path`/`linkpath` and a GNU long
+/// name/link is ambiguous: libarchive and Python's tarfile apply whichever
+/// extension came last, so with the PAX header first they extract a
+/// different name than tar-rs used to. Reject it, as astral-tokio-tar does.
+#[tokio::test]
+async fn pax_and_gnu_long_name_are_ambiguous() {
+    use tokio_stream::StreamExt;
+
+    // (PAX key, GNU extension type, whether the PAX header comes first)
+    let cases = [
+        ("path", EntryType::GNULongName, true),
+        ("path", EntryType::GNULongName, false),
+        ("linkpath", EntryType::GNULongLink, true),
+        ("linkpath", EntryType::GNULongLink, false),
+    ];
+    for (key, gnu_type, pax_first) in cases {
+        let mut ar = Builder::new(Vec::new());
+        let pax = [(key, &b"paxname"[..])];
+        if pax_first {
+            ar.append_pax_extensions(pax).unwrap();
+        }
+        let gnu_name = b"gnuname\0";
+        let mut header = Header::new_gnu();
+        header.set_path("././@LongLink").unwrap();
+        header.set_entry_type(gnu_type);
+        header.set_size(gnu_name.len() as u64);
+        header.set_cksum();
+        ar.append(&header, &gnu_name[..]).unwrap();
+        if !pax_first {
+            ar.append_pax_extensions(pax).unwrap();
+        }
+        let mut header = Header::new_gnu();
+        header.set_path("hdrname").unwrap();
+        header.set_link_name("hdrlink").unwrap();
+        header.set_entry_type(EntryType::Symlink);
+        header.set_size(0);
+        header.set_cksum();
+        ar.append(&header, io::empty()).unwrap();
+        let data = ar.into_inner().unwrap();
+
+        let case = format!("{key} with {gnu_type:?}, pax first: {pax_first}");
+        let err = Archive::new(random_cursor_reader(&data[..]))
+            .entries()
+            .unwrap()
+            .next()
+            .unwrap()
+            .err()
+            .unwrap_or_else(|| panic!("tar-rs accepted {case}"));
+        assert!(err.to_string().contains("ambiguous"), "{case}: {err}");
+
+        let mut ar = tokio_tar::Archive::new(&data[..]);
+        let mut entries = ar.entries().unwrap();
+        let err = entries
+            .next()
+            .await
+            .unwrap()
+            .err()
+            .unwrap_or_else(|| panic!("astral-tokio-tar accepted {case}"));
+        assert!(err.to_string().contains("ambiguous"), "{case}: {err}");
+    }
+}

@@ -441,6 +441,30 @@ impl<'a> EntriesFields<'a> {
                 continue;
             }
 
+            // A GNU long name/link and a PAX `path`/`linkpath` can both
+            // describe this member. Other parsers apply whichever came last
+            // in the archive, so silently preferring one here would let the
+            // member be extracted under a different name than they report.
+            if let Some(pax) = &pax_extensions {
+                let has_key = |key: &str| {
+                    PaxExtensions::new(pax)
+                        .filter_map(|e| e.ok())
+                        .any(|e| e.key_bytes() == key.as_bytes())
+                };
+                if gnu_longname.is_some() && has_key(PAX_PATH) {
+                    return Err(other(
+                        "ambiguous path: pax path and GNU long name \
+                         describe the same member",
+                    ));
+                }
+                if gnu_longlink.is_some() && has_key(PAX_LINKPATH) {
+                    return Err(other(
+                        "ambiguous link target: pax linkpath and GNU long \
+                         link describe the same member",
+                    ));
+                }
+            }
+
             let mut fields = EntryFields::from(entry);
             fields.long_pathname = gnu_longname;
             fields.long_linkname = gnu_longlink;
