@@ -1950,6 +1950,22 @@ fn append_data_error_does_not_corrupt_subsequent_entries() {
     assert_eq!(entries[0].path().unwrap().to_str().unwrap(), "clean.txt");
 }
 
+#[test]
+fn append_data_rejects_dot_dot_past_100_byte_mark() {
+    // A ".." that only appears after the 100-byte header name field must be
+    // rejected just like a short path containing "..".
+    let paths = ["c".repeat(100) + "/../../evil", "c".repeat(97) + "/../evil"];
+    for path in &paths {
+        for mut header in [Header::new_gnu(), Header::new_ustar()] {
+            let mut ar = Builder::new(Vec::new());
+            header.set_size(4);
+            assert!(ar.append_data(&mut header, path, &b"test"[..]).is_err());
+            let data = ar.into_inner().unwrap();
+            assert_eq!(Archive::new(&data[..]).entries().unwrap().count(), 0);
+        }
+    }
+}
+
 /// Build the PAX size smuggling archive described in the original report.
 ///
 /// A PAX extended header declares `size=2048` for a regular file whose

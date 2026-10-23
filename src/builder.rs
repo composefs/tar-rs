@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::str;
 
 use crate::header::BLOCK_SIZE;
@@ -871,6 +871,11 @@ fn prepare_header_path(
         // long, verify it first before using the extension.
         if data.len() < max {
             return Err(e);
+        }
+        // The header only validates the truncated prefix, so a `..` past the
+        // 100-byte mark would otherwise land unchecked in the long name.
+        if path.components().any(|c| c == Component::ParentDir) {
+            return Err(other("paths in archives must not have `..`"));
         }
         // Truncate the path to store in the header we're about to emit to
         // ensure we've got something at least mentioned. Note that we use
