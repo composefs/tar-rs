@@ -478,7 +478,7 @@ impl<'a> EntriesFields<'a> {
         // the same as the current offset (described by the list of blocks) as
         // well as the amount of data read equals the size of the entry
         // (`Header::entry_size`).
-        entry.data.truncate(0);
+        entry.data.clear();
 
         let mut cur = 0;
         let mut remaining = entry.size;
