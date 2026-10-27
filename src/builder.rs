@@ -918,9 +918,8 @@ fn prepare_header_sparse(
     stat: &fs::Metadata,
     header: &mut Header,
 ) -> io::Result<Option<SparseEntries>> {
-    let entries = match find_sparse_entries(file, stat)? {
-        Some(entries) => entries,
-        _ => return Ok(None),
+    let Some(entries) = find_sparse_entries(file, stat)? else {
+        return Ok(None);
     };
 
     header.set_entry_type(EntryType::GNUSparse);
@@ -1404,14 +1403,11 @@ mod tests {
         reported: Option<&SparseEntries>,
         expected: Option<&SparseEntries>,
     ) -> Result<(), &'static str> {
-        let reported = match reported {
-            Some(entries) => entries, // Reported as sparse.
-            // It's not an error to report a sparse file as non-sparse.
-            None => return Ok(()),
+        let Some(reported) = reported else {
+            return Ok(());
         };
-        let expected = match expected {
-            Some(entries) => entries,
-            None => return Err("Expected dense file, but reported as sparse"),
+        let Some(expected) = expected else {
+            return Err("Expected dense file, but reported as sparse");
         };
 
         // Check that we didn't miss any data blocks. However, reporting some

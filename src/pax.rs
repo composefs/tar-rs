@@ -63,21 +63,18 @@ pub struct PaxExtension<'entry> {
 
 pub fn pax_extensions_value(a: &[u8], key: &str) -> Option<u64> {
     for extension in PaxExtensions::new(a) {
-        let current_extension = match extension {
-            Ok(ext) => ext,
-            Err(_) => return None,
+        let Ok(current_extension) = extension else {
+            return None;
         };
         if current_extension.key() != Ok(key) {
             continue;
         }
 
-        let value = match current_extension.value() {
-            Ok(value) => value,
-            Err(_) => return None,
+        let Ok(value) = current_extension.value() else {
+            return None;
         };
-        let result = match value.parse::<u64>() {
-            Ok(result) => result,
-            Err(_) => return None,
+        let Ok(result) = value.parse::<u64>() else {
+            return None;
         };
         return Some(result);
     }
