@@ -426,9 +426,8 @@ impl<'a> EntryFields<'a> {
         }
 
         // Skip entries without a parent (i.e. outside of FS root)
-        let parent = match file_dst.parent() {
-            Some(p) => p,
-            None => return Ok(false),
+        let Some(parent) = file_dst.parent() else {
+            return Ok(false);
         };
 
         self.ensure_dir_created(dst, parent)
@@ -508,14 +507,11 @@ impl<'a> EntryFields<'a> {
             )?;
             return Ok(Unpacked::__Nonexhaustive);
         } else if kind.is_hard_link() || kind.is_symlink() {
-            let src = match self.link_name()? {
-                Some(name) => name,
-                None => {
-                    return Err(other(&format!(
-                        "hard link listed for {} but no link name found",
-                        String::from_utf8_lossy(self.header.as_bytes())
-                    )));
-                }
+            let Some(src) = self.link_name()? else {
+                return Err(other(&format!(
+                    "hard link listed for {} but no link name found",
+                    String::from_utf8_lossy(self.header.as_bytes())
+                )));
             };
 
             if src.iter().count() == 0 {
@@ -862,9 +858,8 @@ impl<'a> EntryFields<'a> {
             use std::ffi::OsStr;
             use std::os::unix::prelude::*;
 
-            let exts = match me.pax_extensions() {
-                Ok(Some(e)) => e,
-                _ => return Ok(()),
+            let Ok(Some(exts)) = me.pax_extensions() else {
+                return Ok(());
             };
             let exts = exts
                 .filter_map(|e| e.ok())

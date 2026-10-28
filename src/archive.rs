@@ -454,9 +454,8 @@ impl<'a> EntriesFields<'a> {
         if !entry.header.entry_type().is_gnu_sparse() {
             return Ok(());
         }
-        let gnu = match entry.header.as_gnu() {
-            Some(gnu) => gnu,
-            None => return Err(other("sparse entry type listed but not GNU header")),
+        let Some(gnu) = entry.header.as_gnu() else {
+            return Err(other("sparse entry type listed but not GNU header"));
         };
 
         // Sparse files are represented internally as a list of blocks that are
