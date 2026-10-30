@@ -164,6 +164,19 @@ impl<T: Write> crate::Builder<T> {
         // For each key in headers, convert into a sized space and add it to data.
         // This will then be written in the file
         for (key, value) in headers {
+            if key.is_empty() {
+                return Err(other("pax extension keys cannot be empty"));
+            }
+            if key.contains('=') {
+                return Err(other("pax extension keys cannot contain '='"));
+            }
+            if key.contains('\n') {
+                return Err(other("pax extension keys cannot contain newlines"));
+            }
+            if key.contains('\0') {
+                return Err(other("pax extension keys cannot contain NUL"));
+            }
+
             let mut len_len = 1;
             let mut max_len = 10;
             let rest_len = 3 + key.len() + value.len();
