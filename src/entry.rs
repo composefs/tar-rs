@@ -952,6 +952,9 @@ impl<'a> EntryFields<'a> {
 
 impl<'a> Read for EntryFields<'a> {
     fn read(&mut self, into: &mut [u8]) -> io::Result<usize> {
+        if into.is_empty() {
+            return Ok(0);
+        }
         loop {
             match self.data.get_mut(0).map(|io| io.read(into)) {
                 Some(Ok(0)) => {
