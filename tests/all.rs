@@ -1133,6 +1133,41 @@ fn pax_simple_write() {
 }
 
 #[test]
+fn pax_invalid_keys_rejected() {
+    let mut ar = Builder::new(Vec::new());
+
+    // Key containing '=' should be rejected
+    assert!(ar
+        .append_pax_extensions([("invalid=key", b"value".as_slice())])
+        .is_err());
+
+    // Key equal to '=' should be rejected
+    assert!(ar
+        .append_pax_extensions([("=", b"value".as_slice())])
+        .is_err());
+
+    // Empty key should be rejected
+    assert!(ar
+        .append_pax_extensions([("", b"value".as_slice())])
+        .is_err());
+
+    // Key with newline should be rejected
+    assert!(ar
+        .append_pax_extensions([("key\nname", b"value".as_slice())])
+        .is_err());
+
+    // Key with NUL should be rejected
+    assert!(ar
+        .append_pax_extensions([("key\0name", b"value".as_slice())])
+        .is_err());
+
+    // Valid keys should still succeed
+    assert!(ar
+        .append_pax_extensions([("valid_key", b"value".as_slice())])
+        .is_ok());
+}
+
+#[test]
 fn pax_path() {
     let mut ar = Archive::new(random_cursor_reader(tar!("pax2.tar")));
     let mut entries = ar.entries().unwrap();
