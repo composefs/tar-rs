@@ -2168,3 +2168,71 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+/// A PAX global header placed between a pending `x`/`L`/`K` header and its
+/// member must not swallow the pending extension. libarchive and Python's
+/// tarfile apply it to the member after the global header, so accepting this
+/// order would give the member a different path or size than other parsers see.
+#[test]
+fn pax_global_header_between_extension_and_member() {
+    const GLOBAL: (EntryType, &[u8]) = (EntryType::XGlobalHeader, b"14 comment=hi\n");
+
+    // Extension headers named `ext`, followed by an empty `benign.txt`.
+    fn build(exts: &[(EntryType, &[u8])]) -> Vec<u8> {
+        let mut ar = Builder::new(Vec::new());
+        for (kind, data) in exts {
+            let mut h = Header::new_ustar();
+            h.set_path("ext").unwrap();
+            h.set_size(data.len() as u64);
+            h.set_entry_type(*kind);
+            h.set_cksum();
+            ar.append(&h, *data).unwrap();
+        }
+        let mut h = Header::new_ustar();
+        h.set_path("benign.txt").unwrap();
+        h.set_size(0);
+        h.set_cksum();
+        ar.append(&h, &[][..]).unwrap();
+        ar.into_inner().unwrap()
+    }
+
+    let cases: &[(EntryType, &[u8])] = &[
+        (EntryType::XHeader, b"21 path=smuggled.txt\n"),
+        (EntryType::XHeader, b"13 size=1024\n"),
+        (EntryType::GNULongName, b"smuggled.txt\0"),
+        (EntryType::GNULongLink, b"target\0"),
+    ];
+    for ext in cases {
+        let data = build(&[*ext, GLOBAL]);
+        let mut ar = Archive::new(&data[..]);
+        let err = ar
+            .entries()
+            .unwrap()
+            .find_map(|e| e.err())
+            .unwrap_or_else(|| panic!("{:?} followed by a global header was accepted", ext.0));
+        assert!(
+            err.to_string().contains("pax global extensions entry"),
+            "{:?}: unexpected error: {err}",
+            ext.0
+        );
+    }
+
+    // A global header that does not interrupt an extension is still yielded.
+    let data = build(&[GLOBAL, (EntryType::XHeader, b"21 path=smuggled.txt\n")]);
+    let mut ar = Archive::new(&data[..]);
+    let entries: Vec<_> = ar
+        .entries()
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            (e.header().entry_type(), e.path().unwrap().into_owned())
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (EntryType::XGlobalHeader, PathBuf::from("ext")),
+            (EntryType::Regular, PathBuf::from("smuggled.txt")),
+        ]
+    );
+}
