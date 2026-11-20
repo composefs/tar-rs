@@ -317,6 +317,11 @@ impl Header {
     ///
     /// May return an error if the field is corrupted.
     pub fn entry_size(&self) -> io::Result<u64> {
+        if self.entry_type().is_gnu_label() {
+            if self.as_old().size.iter().all(|&b| b == 0 || b == b' ') {
+                return Ok(0);
+            }
+        }
         num_field_wrapper_from(&self.as_old().size).map_err(|err| {
             io::Error::new(
                 err.kind(),

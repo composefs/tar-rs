@@ -612,6 +612,7 @@ impl<'a> EntryFields<'a> {
             || kind.is_pax_local_extensions()
             || kind.is_gnu_longname()
             || kind.is_gnu_longlink()
+            || kind.is_gnu_label()
         {
             return Ok(Unpacked::__Nonexhaustive);
         };
