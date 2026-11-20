@@ -27,6 +27,8 @@ pub enum EntryType {
     GNULongLink,
     /// GNU extension - sparse file
     GNUSparse,
+    /// GNU extension - volume label
+    GNULabel,
     /// Global extended header
     XGlobalHeader,
     /// Extended Header
@@ -60,6 +62,7 @@ impl EntryType {
             b'L' => EntryType::GNULongName,
             b'K' => EntryType::GNULongLink,
             b'S' => EntryType::GNUSparse,
+            b'V' => EntryType::GNULabel,
             b => EntryType::__Nonexhaustive(b),
         }
     }
@@ -80,6 +83,7 @@ impl EntryType {
             EntryType::GNULongName => b'L',
             EntryType::GNULongLink => b'K',
             EntryType::GNUSparse => b'S',
+            EntryType::GNULabel => b'V',
             EntryType::__Nonexhaustive(b) => b,
         }
     }
@@ -177,6 +181,11 @@ impl EntryType {
     /// Returns whether this type represents a GNU long link header.
     pub fn is_gnu_longlink(&self) -> bool {
         self == &EntryType::GNULongLink
+    }
+
+    /// Returns whether this type represents a GNU volume label header.
+    pub fn is_gnu_label(&self) -> bool {
+        self == &EntryType::GNULabel
     }
 
     /// Returns whether this type represents PAX global extensions, that
