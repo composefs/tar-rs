@@ -1080,6 +1080,19 @@ fn find_sparse_entries_seek(
     stat: &fs::Metadata,
 ) -> io::Result<Option<SparseEntries>> {
     use std::os::unix::fs::MetadataExt as _;
+
+    find_sparse_entries_seek_with(file, stat.size(), stat.blocks())
+}
+
+/// Body of `find_sparse_entries_seek`. `size` and `blocks` are the file's
+/// `st_size` and `st_blocks`. They are separate arguments so that tests can
+/// simulate file systems whose `st_blocks` does not reflect the file's data.
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+fn find_sparse_entries_seek_with(
+    file: &mut fs::File,
+    size: u64,
+    blocks: u64,
+) -> io::Result<Option<SparseEntries>> {
     use std::os::unix::io::AsRawFd as _;
 
     fn lseek(file: &fs::File, offset: i64, whence: libc::c_int) -> Result<i64, i32> {
@@ -1094,20 +1107,35 @@ fn find_sparse_entries_seek(
         }
     }
 
-    if stat.blocks() == 0 {
-        return Ok(if stat.size() == 0 {
+    if blocks == 0 {
+        if size == 0 {
             // Empty file.
-            None
-        } else {
-            // Fully sparse file.
-            Some(SparseEntries {
-                entries: vec![SparseEntry {
-                    offset: stat.size(),
-                    num_bytes: 0,
-                }],
-                on_disk_size: 0,
-            })
-        });
+            return Ok(None);
+        }
+
+        // Zero allocated blocks does not always mean there is no data. Some
+        // file systems report `st_blocks == 0` for small files that do hold
+        // data; WSL 2 DrvFs (`/mnt/c`) does this for files that NTFS stores
+        // inside the file record. Only treat the file as fully sparse when
+        // `SEEK_DATA` confirms that it has no data.
+        match lseek(file, 0, libc::SEEK_DATA) {
+            // No data anywhere: fully sparse file.
+            Err(libc::ENXIO) => {
+                return Ok(Some(SparseEntries {
+                    entries: vec![SparseEntry {
+                        offset: size,
+                        num_bytes: 0,
+                    }],
+                    on_disk_size: 0,
+                }));
+            }
+            // The file has data: map it with `SEEK_DATA`/`SEEK_HOLE` below.
+            Ok(_) => {
+                file.seek(io::SeekFrom::Start(0))?;
+            }
+            // `SEEK_DATA` is not supported: archive the file as non-sparse.
+            Err(_) => return Ok(None),
+        }
     }
 
     // On most Unixes, we need to read `_PC_MIN_HOLE_SIZE` to see if the file
@@ -1167,7 +1195,7 @@ fn find_sparse_entries_seek(
         //          ↑       │       ↑      ↑          │
         //         (a)      │  (b) (c)    (d)         │     (e)
         match lseek(file, off_s, libc::SEEK_HOLE) {
-            Ok(off_e) if off_s == 0 && (off_e as u64) == stat.size() => {
+            Ok(off_e) if off_s == 0 && (off_e as u64) == size => {
                 // (a) The file is not sparse.
                 file.seek(io::SeekFrom::Start(0))?;
                 return Ok(None);
@@ -1209,7 +1237,7 @@ fn find_sparse_entries_seek(
         };
     }
 
-    if off_s as u64 > stat.size() {
+    if off_s as u64 > size {
         return Err(std::io::Error::new(
             io::ErrorKind::Other,
             "lseek(SEEK_DATA) went beyond the end of the file. \
@@ -1221,7 +1249,7 @@ fn find_sparse_entries_seek(
     // hole, and redundant otherwise. However, we add it unconditionally to
     // mimic GNU tar behavior.
     entries.push(SparseEntry {
-        offset: stat.size(),
+        offset: size,
         num_bytes: 0,
     });
 
@@ -1398,6 +1426,25 @@ mod tests {
             #[cfg(any(target_os = "android", target_os = "linux"))]
             assert_eq!(reported, expected, "Case: {description}");
         }
+    }
+
+    /// Some file systems report `st_blocks == 0` for a file that holds data
+    /// (WSL 2 DrvFs does so for small files). Such a file must be archived as
+    /// a regular file, not as a fully sparse one with no data.
+    #[test]
+    #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+    fn test_find_sparse_entries_zero_blocks_with_data() {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"hello\n").unwrap();
+
+        // Simulate the metadata such a file system reports: the real size,
+        // but zero allocated blocks.
+        let reported = find_sparse_entries_seek_with(&mut file, 6, 0).unwrap();
+        assert_eq!(reported, None);
+
+        // A non-sparse file is read from the current position, so the
+        // position must be back at the start.
+        assert_eq!(file.stream_position().unwrap(), 0);
     }
 
     fn loose_check_sparse_entries(
