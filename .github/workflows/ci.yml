@@ -49,7 +49,8 @@ jobs:
     - run: cargo test
     - run: cargo test --no-default-features
     - name: Run cargo test with root
-      run: sudo -E $(which cargo) test
+      # sudo-rs (Ubuntu 26.04+) ignores -E, so pass the toolchain environment explicitly.
+      run: sudo env "PATH=$PATH" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" "$(which cargo)" test
       if: ${{ matrix.os == 'ubuntu-latest' }}
 
   wasm:
