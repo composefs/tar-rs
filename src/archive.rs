@@ -405,6 +405,20 @@ impl<'a> EntriesFields<'a> {
                 None => return Ok(None),
             };
 
+            // Other parsers (libarchive, Python's tarfile) consume a PAX
+            // global header in place and keep applying any pending `x`/`L`/`K`
+            // to the member that follows it. Returning the global header as
+            // its own entry would attach the pending extensions to it instead,
+            // so that member would get a different path and size here.
+            if entry.header().entry_type().is_pax_global_extensions()
+                && (gnu_longname.is_some() || gnu_longlink.is_some() || pax_extensions.is_some())
+            {
+                return Err(other(
+                    "pax global extensions entry found between \
+                     an extension entry and the member it describes",
+                ));
+            }
+
             let is_recognized_header =
                 entry.header().as_gnu().is_some() || entry.header().as_ustar().is_some();
 
