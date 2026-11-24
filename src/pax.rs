@@ -61,27 +61,30 @@ pub struct PaxExtension<'entry> {
     value: &'entry [u8],
 }
 
+/// Returns the value of the last record for `key`, parsed as a `u64`.
+///
+/// Per POSIX, a later record overrides an earlier one with the same keyword;
+/// GNU tar, libarchive and Go all agree. Taking the first match instead lets
+/// a duplicated `size` record make this crate frame the archive differently.
 pub fn pax_extensions_value(a: &[u8], key: &str) -> Option<u64> {
+    let mut result = None;
     for extension in PaxExtensions::new(a) {
         let current_extension = match extension {
             Ok(ext) => ext,
-            Err(_) => return None,
+            // Stop at a malformed record, keeping any value already found.
+            Err(_) => break,
         };
         if current_extension.key() != Ok(key) {
             continue;
         }
 
-        let value = match current_extension.value() {
-            Ok(value) => value,
-            Err(_) => return None,
-        };
-        let result = match value.parse::<u64>() {
-            Ok(result) => result,
-            Err(_) => return None,
-        };
-        return Some(result);
+        // Like GNU tar, ignore a value that doesn't parse instead of
+        // discarding one found earlier.
+        if let Ok(Ok(value)) = current_extension.value().map(str::parse::<u64>) {
+            result = Some(value);
+        }
     }
-    None
+    result
 }
 
 impl<'entry> Iterator for PaxExtensions<'entry> {
@@ -191,5 +194,32 @@ impl<T: Write> crate::Builder<T> {
         header.set_entry_type(crate::EntryType::XHeader);
         header.set_cksum();
         self.append(&header, data_as_bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pax_extensions_value() {
+        let cases: &[(&[u8], Option<u64>)] = &[
+            (b"", None),
+            (b"10 size=8\n", Some(8)),
+            (b"10 size=8\n13 size=2048\n", Some(2048)),
+            (b"13 size=2048\n12 size=abc\n", Some(2048)),
+            (b"12 size=abc\n10 size=8\n", Some(8)),
+            (b"10 size=8\n9 bogus\n13 size=2048\n", Some(8)),
+            (b"9 bogus\n10 size=8\n", None),
+            (b"9 uid=10\n", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                pax_extensions_value(input, PAX_SIZE),
+                *expected,
+                "{:?}",
+                String::from_utf8_lossy(input)
+            );
+        }
     }
 }
