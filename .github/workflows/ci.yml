@@ -81,9 +81,6 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - uses: obi1kenobi/cargo-semver-checks-action@v2
-      with:
-        # Pinned until cargo-semver-checks supports rustdoc format v57 (Rust 1.93+)
-        rust-toolchain: "1.92.0"
 
   revdep:
     name: Reverse deps
