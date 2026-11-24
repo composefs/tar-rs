@@ -585,6 +585,9 @@ impl<'a> EntryFields<'a> {
                 }
                 if self.preserve_mtime {
                     if let Some(mtime) = get_mtime(&self.header) {
+                        // filetime deprecates its API on Rust 1.99+ in favour of std, whose
+                        // replacements need a newer Rust than our MSRV; see #458.
+                        #[allow(deprecated)]
                         filetime::set_symlink_file_times(dst, mtime, mtime).map_err(|e| {
                             TarError::new(format!("failed to set mtime for `{}`", dst.display()), e)
                         })?;
@@ -692,6 +695,9 @@ impl<'a> EntryFields<'a> {
 
         if self.preserve_mtime {
             if let Some(mtime) = get_mtime(&self.header) {
+                // filetime deprecates its API on Rust 1.99+ in favour of std, whose
+                // replacements need a newer Rust than our MSRV; see #458.
+                #[allow(deprecated)]
                 filetime::set_file_handle_times(&f, Some(mtime), Some(mtime)).map_err(|e| {
                     TarError::new(format!("failed to set mtime for `{}`", dst.display()), e)
                 })?;
