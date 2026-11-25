@@ -35,6 +35,37 @@ fn goto_ustar() {
 }
 
 #[test]
+fn ustar_version_variants() {
+    let mut h = Header::new_ustar();
+    h.set_path("some/very/long/prefix/path/to/a/file/specification_provider.rb")
+        .unwrap();
+
+    let ustar = h.as_ustar_mut().unwrap();
+    ustar.version = *b"  ";
+    assert!(h.as_ustar().is_some());
+    assert_eq!(
+        h.path_bytes(),
+        b"some/very/long/prefix/path/to/a/file/specification_provider.rb".as_slice()
+    );
+
+    let ustar = h.as_ustar_mut().unwrap();
+    ustar.version = *b" \0";
+    assert!(h.as_ustar().is_some());
+    assert_eq!(
+        h.path_bytes(),
+        b"some/very/long/prefix/path/to/a/file/specification_provider.rb".as_slice()
+    );
+
+    let ustar = h.as_ustar_mut().unwrap();
+    ustar.version = *b"\0\0";
+    assert!(h.as_ustar().is_some());
+    assert_eq!(
+        h.path_bytes(),
+        b"some/very/long/prefix/path/to/a/file/specification_provider.rb".as_slice()
+    );
+}
+
+#[test]
 fn link_name() {
     let mut h = Header::new_gnu();
     h.set_link_name("foo").unwrap();
