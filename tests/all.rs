@@ -2171,11 +2171,15 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
 
 #[test]
 fn gnu_volume_label() {
+    assert_eq!(EntryType::new(b'V'), EntryType::gnu_label());
+    assert!(EntryType::new(b'V').is_gnu_label());
+    assert_eq!(EntryType::gnu_label().as_byte(), b'V');
+
     let mut ar = Builder::new(Vec::new());
 
     // Construct a GNU volume label header with empty size field
     let mut header = Header::new_gnu();
-    header.set_entry_type(EntryType::GNULabel);
+    header.set_entry_type(EntryType::gnu_label());
     header.set_path("MY_TAR_LABEL").unwrap();
     // Do not set size, leaving it as 0 bytes / empty
     header.set_cksum();
