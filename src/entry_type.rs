@@ -124,6 +124,11 @@ impl EntryType {
         EntryType::Continuous
     }
 
+    /// Creates a new entry type representing a GNU volume label header.
+    pub fn gnu_label() -> EntryType {
+        EntryType::__Nonexhaustive(b'V')
+    }
+
     /// Returns whether this type represents a regular file.
     pub fn is_file(&self) -> bool {
         self == &EntryType::Regular
@@ -177,6 +182,11 @@ impl EntryType {
     /// Returns whether this type represents a GNU long link header.
     pub fn is_gnu_longlink(&self) -> bool {
         self == &EntryType::GNULongLink
+    }
+
+    /// Returns whether this type represents a GNU volume label header.
+    pub fn is_gnu_label(&self) -> bool {
+        self == &EntryType::__Nonexhaustive(b'V')
     }
 
     /// Returns whether this type represents PAX global extensions, that

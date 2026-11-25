@@ -2168,3 +2168,55 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+#[test]
+fn gnu_volume_label() {
+    assert_eq!(EntryType::new(b'V'), EntryType::gnu_label());
+    assert!(EntryType::new(b'V').is_gnu_label());
+    assert_eq!(EntryType::gnu_label().as_byte(), b'V');
+
+    let mut ar = Builder::new(Vec::new());
+
+    // Construct a GNU volume label header with empty size field
+    let mut header = Header::new_gnu();
+    header.set_entry_type(EntryType::gnu_label());
+    header.set_path("MY_TAR_LABEL").unwrap();
+    // Do not set size, leaving it as 0 bytes / empty
+    header.set_cksum();
+    ar.append(&header, &mut io::empty()).unwrap();
+
+    let data = b"hello world";
+    let mut f_header = Header::new_gnu();
+    f_header.set_path("a.txt").unwrap();
+    f_header.set_size(data.len() as u64);
+    f_header.set_cksum();
+    ar.append(&f_header, &data[..]).unwrap();
+
+    ar.finish().unwrap();
+
+    let bytes = ar.into_inner().unwrap();
+    let mut ar = Archive::new(&bytes[..]);
+    let mut entries = ar.entries().unwrap();
+
+    let entry1 = entries.next().unwrap().unwrap();
+    assert!(entry1.header().entry_type().is_gnu_label());
+    assert_eq!(entry1.header().entry_size().unwrap(), 0);
+    assert_eq!(entry1.header().size().unwrap(), 0);
+    assert_eq!(entry1.path().unwrap().to_str().unwrap(), "MY_TAR_LABEL");
+
+    let mut entry2 = entries.next().unwrap().unwrap();
+    assert!(entry2.header().entry_type().is_file());
+    assert_eq!(entry2.path().unwrap().to_str().unwrap(), "a.txt");
+    let mut content = Vec::new();
+    entry2.read_to_end(&mut content).unwrap();
+    assert_eq!(content, b"hello world");
+
+    assert!(entries.next().is_none());
+
+    // Test unpacking ignores the volume label
+    let td = TempBuilder::new().prefix("tar-rs").tempdir().unwrap();
+    let mut ar = Archive::new(&bytes[..]);
+    ar.unpack(td.path()).unwrap();
+    assert!(!td.path().join("MY_TAR_LABEL").exists());
+    assert!(td.path().join("a.txt").exists());
+}
