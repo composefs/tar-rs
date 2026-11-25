@@ -1228,6 +1228,136 @@ fn long_linkname_gnu() {
     }
 }
 
+/// The name GNU tar gives a long name or long link entry.
+const GNU_LONG_LINK_NAME: &[u8] = b"././@LongLink";
+
+/// An archive holding `file.txt` (a symlink to `target` if there is a GNU
+/// long link) after the given metadata entries, each with the given length of
+/// contents: GNU long names (`nnn...`), GNU long links (`kkk...`) or pax
+/// extensions (one `comment` record).
+fn build_metadata_archive(metadata: &[(EntryType, usize)]) -> Vec<u8> {
+    const B: usize = 512;
+    let mut ar = Vec::new();
+    for &(kind, len) in metadata {
+        let (mut header, contents) = if kind == EntryType::XHeader {
+            let mut header = Header::new_ustar();
+            header.set_path("PaxHeaders/file.txt").unwrap();
+            // One `<len> comment=ccc...\n` record, `len` bytes in all.
+            let overhead = format!("{len} comment=\n").len();
+            let record = format!("{len} comment={}\n", "c".repeat(len - overhead));
+            (header, record.into_bytes())
+        } else {
+            let mut header = Header::new_gnu();
+            header.as_gnu_mut().unwrap().name[..GNU_LONG_LINK_NAME.len()]
+                .copy_from_slice(GNU_LONG_LINK_NAME);
+            let byte = if kind == EntryType::GNULongLink {
+                b'k'
+            } else {
+                b'n'
+            };
+            (header, vec![byte; len])
+        };
+        assert_eq!(contents.len(), len);
+        header.set_size(len as u64);
+        header.set_entry_type(kind);
+        header.set_cksum();
+        ar.extend_from_slice(header.as_bytes());
+        ar.extend_from_slice(&contents);
+        ar.resize(ar.len().next_multiple_of(B), 0);
+    }
+
+    let mut member = Header::new_gnu();
+    member.set_path("file.txt").unwrap();
+    member.set_size(0);
+    if metadata
+        .iter()
+        .any(|&(kind, _)| kind == EntryType::GNULongLink)
+    {
+        member.set_entry_type(EntryType::Symlink);
+        member.set_link_name("target").unwrap();
+    } else {
+        member.set_entry_type(EntryType::Regular);
+    }
+    member.set_cksum();
+    ar.extend_from_slice(member.as_bytes());
+    ar.extend(std::iter::repeat(0u8).take(B * 2));
+    ar
+}
+
+/// Iterating reads GNU long name, GNU long link and pax extensions entries
+/// into memory. `set_max_metadata_size` bounds them for one entry combined,
+/// and the check comes before the entry that exceeds it is read.
+#[test]
+fn max_metadata_size() {
+    use EntryType::{GNULongLink as K, GNULongName as L, XHeader as X};
+    // The metadata entries before file.txt, the limit, and then file.txt's
+    // path and link name lengths, or the metadata size the error reports.
+    type Case = (
+        &'static [(EntryType, usize)],
+        Option<u64>,
+        Result<(usize, usize), u64>,
+    );
+    let file = "file.txt".len();
+    let cases: &[Case] = &[
+        (&[(L, 2000)], None, Ok((2000, 0))),
+        (&[(L, 2000)], Some(2000), Ok((2000, 0))),
+        (&[(L, 2000)], Some(1999), Err(2000)),
+        (&[(K, 2000)], Some(2000), Ok((file, 2000))),
+        (&[(K, 2000)], Some(1999), Err(2000)),
+        (&[(X, 2000)], Some(2000), Ok((file, 0))),
+        (&[(X, 2000)], Some(1999), Err(2000)),
+        // The limit is for all of one entry's metadata together.
+        (&[(X, 1000), (L, 1000)], Some(2000), Ok((1000, 0))),
+        (&[(X, 1000), (L, 1000)], Some(1999), Err(2000)),
+    ];
+    for &(metadata, max, expected) in cases {
+        let context = format!("{metadata:?} with limit {max:?}");
+        let data = build_metadata_archive(metadata);
+        let mut ar = Archive::new(random_cursor_reader(&data[..]));
+        if let Some(max) = max {
+            ar.set_max_metadata_size(max);
+        }
+        let entries: io::Result<Vec<(usize, usize)>> = ar
+            .entries()
+            .unwrap()
+            .map(|e| {
+                let e = e?;
+                let link = e.link_name_bytes().map_or(0, |l| l.len());
+                Ok((e.path_bytes().len(), link))
+            })
+            .collect();
+        match expected {
+            Ok(expected) => assert_eq!(entries.expect(&context), [expected], "{context}"),
+            Err(size) => {
+                let err = entries.expect_err(&context).to_string();
+                let message = format!(
+                    "metadata exceeds limit: {size} bytes > {} bytes",
+                    max.unwrap()
+                );
+                assert_eq!(err, message, "{context}");
+            }
+        }
+    }
+
+    // A long name that claims a terabyte, with nothing behind it, fails on
+    // the limit rather than on the missing data: none of it was read.
+    let mut header = Header::new_gnu();
+    header.as_gnu_mut().unwrap().name[..GNU_LONG_LINK_NAME.len()]
+        .copy_from_slice(GNU_LONG_LINK_NAME);
+    header.set_size(1 << 40);
+    header.set_entry_type(EntryType::GNULongName);
+    header.set_cksum();
+    let mut ar = Archive::new(Cursor::new(header.as_bytes().to_vec()));
+    ar.set_max_metadata_size(1 << 20);
+    match ar.entries().unwrap().next() {
+        Some(Err(err)) => assert_eq!(
+            err.to_string(),
+            "metadata exceeds limit: 1099511627776 bytes > 1048576 bytes"
+        ),
+        _ => panic!("expected the limit to fail the iteration"),
+    }
+}
+
 #[test]
 fn linkname_literal() {
     for t in [tar::EntryType::Symlink, tar::EntryType::Link] {

@@ -30,6 +30,7 @@ pub struct ArchiveInner<R: ?Sized> {
     preserve_mtime: bool,
     overwrite: bool,
     ignore_zeros: bool,
+    max_metadata_size: u64,
     obj: RefCell<R>,
 }
 
@@ -62,6 +63,7 @@ impl<R: Read> Archive<R> {
                 preserve_mtime: true,
                 overwrite: true,
                 ignore_zeros: false,
+                max_metadata_size: u64::MAX,
                 obj: RefCell::new(obj),
                 pos: Cell::new(0),
             },
@@ -175,6 +177,21 @@ impl<R: Read> Archive<R> {
     /// This can be used in case multiple tar archives have been concatenated together.
     pub fn set_ignore_zeros(&mut self, ignore_zeros: bool) {
         self.inner.ignore_zeros = ignore_zeros;
+    }
+
+    /// Set the maximum size, in bytes, of the metadata that describes one
+    /// entry: its GNU long name, GNU long link and pax extensions entries
+    /// combined.
+    ///
+    /// Iterating over the archive, which [`Archive::unpack`] also does, reads
+    /// these entries into memory, as many bytes as their headers give, and a
+    /// small compressed archive can hold one of several gigabytes. With this
+    /// limit, iteration fails at the entry that would take the metadata over
+    /// it, before reading that entry.
+    ///
+    /// There is no limit by default.
+    pub fn set_max_metadata_size(&mut self, max: u64) {
+        self.inner.max_metadata_size = max;
     }
 }
 
@@ -391,6 +408,7 @@ impl<'a> EntriesFields<'a> {
         let mut gnu_longname = None;
         let mut gnu_longlink = None;
         let mut pax_extensions = None;
+        let mut metadata_size = 0;
         let mut processed = 0;
         loop {
             processed += 1;
@@ -415,7 +433,7 @@ impl<'a> EntriesFields<'a> {
                          the same member",
                     ));
                 }
-                gnu_longname = Some(EntryFields::from(entry).read_all()?);
+                gnu_longname = Some(self.read_metadata(entry, &mut metadata_size)?);
                 continue;
             }
 
@@ -426,7 +444,7 @@ impl<'a> EntriesFields<'a> {
                          the same member",
                     ));
                 }
-                gnu_longlink = Some(EntryFields::from(entry).read_all()?);
+                gnu_longlink = Some(self.read_metadata(entry, &mut metadata_size)?);
                 continue;
             }
 
@@ -437,7 +455,7 @@ impl<'a> EntriesFields<'a> {
                          the same member",
                     ));
                 }
-                pax_extensions = Some(EntryFields::from(entry).read_all()?);
+                pax_extensions = Some(self.read_metadata(entry, &mut metadata_size)?);
                 continue;
             }
 
@@ -448,6 +466,27 @@ impl<'a> EntriesFields<'a> {
             self.parse_sparse_header(&mut fields)?;
             return Ok(Some(fields.into_entry()));
         }
+    }
+
+    /// Read the contents of a GNU long name, GNU long link or pax extensions
+    /// entry and add its size to `metadata_size`, the metadata read so far for
+    /// the entry it describes. Fails without reading if that would exceed the
+    /// archive's maximum metadata size.
+    fn read_metadata(
+        &self,
+        entry: Entry<'a, io::Empty>,
+        metadata_size: &mut u64,
+    ) -> io::Result<Vec<u8>> {
+        let mut fields = EntryFields::from(entry);
+        let max = self.archive.inner.max_metadata_size;
+        *metadata_size = metadata_size.saturating_add(fields.size);
+        if *metadata_size > max {
+            return Err(other(&format!(
+                "metadata exceeds limit: {} bytes > {} bytes",
+                metadata_size, max
+            )));
+        }
+        fields.read_all()
     }
 
     fn parse_sparse_header(&mut self, entry: &mut EntryFields<'a>) -> io::Result<()> {

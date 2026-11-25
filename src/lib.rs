@@ -23,6 +23,11 @@
 //! where the destination may be concurrently modified, use the [`cap-std`]
 //! crate and/or OS-level sandboxing.
 //!
+//! Iterating over an archive reads each GNU long name, GNU long link and pax
+//! extensions entry into memory, however large its header says it is. When
+//! reading untrusted archives, especially compressed ones, bound this with
+//! [`Archive::set_max_metadata_size`].
+//!
 //! [`cap-std`]: https://docs.rs/cap-std/
 
 // More docs about the detailed tar format can also be found here:
