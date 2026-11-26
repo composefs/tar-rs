@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 use std::io;
 use std::io::Write;
-use std::slice;
 use std::str;
 
 use crate::other;
@@ -39,19 +38,17 @@ pub const PAX_GNUSPARSEREALSIZE: &str = "GNU.sparse.realsize";
 ///
 /// This iterator yields structures which can themselves be parsed into
 /// key/value pairs.
+///
+/// Records are framed by their leading decimal length, so a value may hold
+/// any byte, a newline included. A malformed body yields one error and ends.
 pub struct PaxExtensions<'entry> {
-    data: slice::Split<'entry, u8, fn(&u8) -> bool>,
+    data: &'entry [u8],
 }
 
 impl<'entry> PaxExtensions<'entry> {
     /// Create new pax extensions iterator from the given entry data.
     pub fn new(a: &'entry [u8]) -> Self {
-        fn is_newline(a: &u8) -> bool {
-            *a == b'\n'
-        }
-        PaxExtensions {
-            data: a.split(is_newline),
-        }
+        PaxExtensions { data: a }
     }
 }
 
@@ -88,36 +85,36 @@ impl<'entry> Iterator for PaxExtensions<'entry> {
     type Item = io::Result<PaxExtension<'entry>>;
 
     fn next(&mut self) -> Option<io::Result<PaxExtension<'entry>>> {
-        let line = match self.data.next() {
-            Some([]) => return None,
-            Some(line) => line,
-            None => return None,
-        };
+        if self.data.is_empty() {
+            return None;
+        }
 
-        Some(
-            line.iter()
-                .position(|b| *b == b' ')
-                .and_then(|i| {
-                    str::from_utf8(&line[..i])
-                        .ok()
-                        .and_then(|len| len.parse::<usize>().ok().map(|j| (i + 1, j)))
-                })
-                .and_then(|(kvstart, reported_len)| {
-                    if line.len() + 1 == reported_len {
-                        line[kvstart..]
-                            .iter()
-                            .position(|b| *b == b'=')
-                            .map(|equals| (kvstart, equals))
-                    } else {
-                        None
-                    }
-                })
-                .map(|(kvstart, equals)| PaxExtension {
-                    key: &line[kvstart..kvstart + equals],
-                    value: &line[kvstart + equals + 1..],
-                })
-                .ok_or_else(|| other("malformed pax extension")),
-        )
+        let rest = self.data;
+        let record = rest.iter().position(|b| *b == b' ').and_then(|space| {
+            let digits = &rest[..space];
+            // `parse` would accept a leading '+', which GNU tar rejects.
+            if !digits.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            let len = str::from_utf8(digits).ok()?.parse::<usize>().ok()?;
+            if len <= space + 1 || len > rest.len() || rest[len - 1] != b'\n' {
+                return None;
+            }
+            let keyvalue = &rest[space + 1..len - 1];
+            let equals = keyvalue.iter().position(|b| *b == b'=')?;
+            Some((len, &keyvalue[..equals], &keyvalue[equals + 1..]))
+        });
+
+        match record {
+            Some((len, key, value)) => {
+                self.data = &rest[len..];
+                Some(Ok(PaxExtension { key, value }))
+            }
+            None => {
+                self.data = &[];
+                Some(Err(other("malformed pax extension")))
+            }
+        }
     }
 }
 
