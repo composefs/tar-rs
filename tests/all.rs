@@ -2168,3 +2168,25 @@ async fn pax_extension_header_matches_astral_tokio_tar() {
         "astral-tokio-tar produced unexpected entries\ngot: {async_entries:?}"
     );
 }
+
+#[test]
+fn empty_buffer_read_does_not_discard_data() {
+    let mut ar = Builder::new(Vec::new());
+    let mut header = Header::new_gnu();
+    header.set_size(3);
+    ar.append_data(&mut header, "member", &b"abc"[..]).unwrap();
+    let data = ar.into_inner().unwrap();
+
+    let mut archive = Archive::new(&data[..]);
+    let mut entries = archive.entries().unwrap();
+    let mut member = entries.next().unwrap().unwrap();
+
+    let mut empty_buf = [];
+    let empty_read = member.read(&mut empty_buf).unwrap();
+    assert_eq!(empty_read, 0);
+
+    let mut buf = [0; 3];
+    let n = member.read(&mut buf).unwrap();
+    assert_eq!(n, 3);
+    assert_eq!(&buf, b"abc");
+}
